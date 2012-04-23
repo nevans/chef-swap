@@ -1,50 +1,57 @@
-
-unless new_resource[:path]
-  new_resource[:path] = new_resource[:name]
-end
-
 action :create do
 
-  bash 'create swapfile at #{new_resource[:path]}' do
-    not_if { File.exists?('#{new_resource[:path]}') }
+  root_group = value_for_platform("default" => "root",
+                                  ["openbsd", "freebsd", "gentoo"] => { "default" => "wheel" })
+
+  bash 'create swapfile ' + new_resource.name do
     code <<-EOH
-    dd if=/dev/zero of=#{new_resource[:path]} bs=1M count=#{new_resource[:size]} &&
-    chmod 0600 #{new_resource[:path]} &&
-    mkswap #{new_resource[:path]}
+    dd if=/dev/zero of=#{new_resource.name} bs=1048576 count=#{new_resource.size}
     EOH
     action :run
-    not_if { File.size(new_resource[:path])/1048577 == new_resource[:size] }
+    not_if { load_current_resource == new_resource.size }
   end
 
-  file new_resource[:path] do
-    mode new_resource[:mode]
-    owner new_resource[:owner]
-    group new_resource[:group]
+  file new_resource.name do
+    mode 0600
+    owner 'root'
+    group root_group
+    action :nothing
+    subscribes :create, resources(:bash => "create swapfile #{new_resource.name}"), :immediately
   end
 
-  bash 'activate swap file ' + new_resource[:path] do
-    code 'swapon -a'
+  bash 'swapon ' + new_resource.name do
+    code 'swapon ' + new_resource.name
     action :nothing
   end
 
+  bash 'mkswap ' + new_resource.name do
+    code 'mkswap -f ' + new_resource.name
+    action :nothing
+    subscribes :run, resources(:bash => "create swapfile #{new_resource.name}"), :immediately
+    notifies :run, resources(:bash => "swapon #{new_resource.name}"), :immediately
+  end
+
   mount '/dev/null' do  # Can't say 'none' here like we normally would: http://tickets.opscode.com/browse/CHEF-1967
-    action :enable  # swap partitions aren't mounted, so only add to fstab
-    device new_resource[:path]
+    action :enable # swap partitions aren't mounted, so only add to fstab
+    device new_resource.name
     fstype 'swap'
-    notifies :run, 'bash[activate swap file #{new_resource[:path]}]', :immediately
   end
 
 end
 
 action :delete do
-
-  file new_resource[:path] do
+  
+  file new_resource.name do
     action :nothing
   end
 
-  bash "swapoff #{new_resource[:path]}" do
-    code "swapoff #{new_resource[:path]}"
-    notifies :delete, 'file[#{new_resource[:path]}]', :immediately
+  bash 'swapoff '+ new_resource.name do
+    code 'swapoff ' + new_resource.name
+    notifies :delete, "file[#{new_resource.name}]", :immediately
   end
     
+end
+
+def load_current_resource
+  current_resource = ::File.size?(new_resource.name).to_i/1048576
 end
