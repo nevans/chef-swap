@@ -1,5 +1,5 @@
-name "swapfile"
+name "swap"
 maintainer "Cameron Johnston"
 maintainer_email "cameron@rootdown.net"
 description "definition for managing swap files"
-version "0.0.2"
+version "0.0.3"
